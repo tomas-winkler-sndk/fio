@@ -177,6 +177,9 @@ struct thread_options {
 	unsigned int log_alternate_epoch_clock_id;
 	unsigned int norandommap;
 	unsigned int softrandommap;
+	unsigned int sprandom;
+	unsigned int num_regions;
+	fio_fp64_t over_provisioning;
 	unsigned int bs_unaligned;
 	unsigned int fsync_on_close;
 	unsigned int bs_is_seq_rand;
