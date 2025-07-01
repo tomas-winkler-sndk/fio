@@ -114,6 +114,11 @@ struct fio_file {
 	uint32_t max_zone;	/* exclusive */
 
 	/*
+	 * SPRandom precondition info
+	 */
+	struct sprandom_info *spr_info;
+
+	/*
 	 * Track last end and last start of IO for a given data direction
 	 */
 	uint64_t last_pos[DDIR_RWDIR_CNT];

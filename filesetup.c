@@ -15,6 +15,7 @@
 #include "lib/axmap.h"
 #include "rwlock.h"
 #include "zbd.h"
+#include "sprandom.h"
 
 #ifdef CONFIG_LINUX_FALLOCATE
 #include <linux/falloc.h>
@@ -972,6 +973,10 @@ uint64_t get_start_offset(struct thread_data *td, struct fio_file *f)
 			(td->subjob_number * increment);
 
 		align = true;
+	} else if (o->sprandom && f->spr_info) {
+		offset = o->start_offset + f->spr_info->offsets[td->subjob_number];
+		align = true;
+		dprint(FD_SPRANDOM, "offset = %lld\n", offset);
 	} else {
 		/* start_offset_percent not set */
 		offset = o->start_offset +
@@ -995,6 +1000,8 @@ uint64_t get_start_offset(struct thread_data *td, struct fio_file *f)
 		 */
 		offset = (offset / align_bs + (offset % align_bs != 0)) * align_bs;
 	}
+
+	dprint(FD_SPRANDOM, "aligned offset = %lld\n", offset);
 
 	return offset;
 }
@@ -1123,6 +1130,9 @@ int setup_files(struct thread_data *td)
 	if (o->read_iolog_file)
 		goto done;
 
+	dprint(FD_FILE, "sprandom_init_files\n");
+	sprandom_init_files(td);
+
 	/*
 	 * check sizes. if the files/devices do not exist and the size
 	 * isn't passed to fio, abort.
@@ -1225,8 +1235,15 @@ int setup_files(struct thread_data *td)
 				f->io_size = get_rand_file_size(td)
 						- f->file_offset;
 			}
-		} else
+		} else {
 			f->io_size = f->real_file_size - f->file_offset;
+			dprint(FD_SPRANDOM, "[1] o->size_percent %d, f->io_size %ld\n", o->size_percent, f->io_size);
+		}
+
+		if (o->sprandom) {
+			f->io_size = sprandom_io_size(f);
+			dprint(FD_SPRANDOM, "[2] o->size_percent %d, f->io_size %ld\n", o->size_percent, f->io_size);
+		}
 
 		if (f->io_size == -1ULL)
 			total_size = -1ULL;
@@ -1266,6 +1283,7 @@ int setup_files(struct thread_data *td)
 				    td_ioengine_flagged(td, FIO_FAKEIO)))
 				f->real_file_size = f->io_size + f->file_offset;
 		}
+		dprint(FD_SPRANDOM, "IO offset=%ld io=%ld [%ld]fsize=%ld\n", f->file_offset, f->io_size, f->file_offset + f->io_size, f->real_file_size);
 	}
 
 	if (td->o.block_error_hist) {
@@ -1623,6 +1641,7 @@ void close_and_free_files(struct thread_data *td)
 
 		zbd_close_file(f);
 		fdp_free_ruhs_info(f);
+		sprandom_free_info(f);
 		fio_file_free(f);
 	}
 

@@ -479,7 +479,7 @@ static void copy_opt_list(struct thread_data *dst, struct thread_data *src)
 /*
  * Return a free job structure.
  */
-static struct thread_data *get_new_job(bool global, struct thread_data *parent,
+struct thread_data *get_new_job(bool global, struct thread_data *parent,
 				       bool preserve_eo, const char *jobname)
 {
 	struct thread_segment *seg;
@@ -1551,12 +1551,52 @@ static const char *make_log_name(const char *logname, const char *jobname)
 	return jobname;
 }
 
+int add_job(struct thread_data *td, const char *jobname, int job_add_num,
+		   int recursed, int client_type);
+
+static int setup_preconditon_regions(struct thread_data *td, struct fio_file *f)
+{
+	unsigned int numjobs = td->o.num_regions;
+	const char *jobname = td->o.name;
+	unsigned int i;
+
+	if (!td->o.sprandom)
+		return 0;
+
+	if (!td->o.num_regions)
+		return 0;
+
+	dprint(FD_FILE, "preconditiong regions %s = %d %s\n", jobname, numjobs, f->file_name);
+
+	for (i = 1; i < numjobs; i++) {
+		struct thread_data *td_new = get_new_job(false, td, true, jobname);
+		if (!td_new)
+			goto err;
+
+		td_new->o.numjobs = 1;
+		td_new->o.num_regions = 0;
+		td_new->o.stonewall = true;
+		td_new->o.new_group = 0;
+		td_new->subjob_number = i;
+		td_new->o.ss_dur = td->o.ss_dur * 1000000l;
+		td_new->o.ss_limit = td->o.ss_limit;
+
+		if (add_job(td_new, jobname, i, 1, td->client_type))
+			goto err;
+	}
+
+	return 0;
+err:
+	/* cleanup the resources by the calling function */
+	return 1;
+}
+
 /*
  * Adds a job to the list of things todo. Sanitizes the various options
  * to make sure we don't have conflicts, and initializes various
  * members of td.
  */
-static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
+int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 		   int recursed, int client_type)
 {
 	unsigned int i;
@@ -1889,6 +1929,7 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 	 * as they don't apply to sub-jobs
 	 */
 	numjobs = o->numjobs;
+	/* FIXME: sprandom: add sprandom jobs here we already know number of files */
 	while (--numjobs) {
 		struct thread_data *td_new = get_new_job(false, td, true, jobname);
 
@@ -1921,6 +1962,14 @@ static int add_job(struct thread_data *td, const char *jobname, int job_add_num,
 		if (add_job(td_new, jobname, numjobs, 1, client_type))
 			goto err;
 	}
+	if (td->o.sprandom) {
+		struct fio_file *f;
+		for_each_file(td, f, i) {
+			if (setup_preconditon_regions(td, f))
+				goto err;
+		}
+	}
+
 
 	return 0;
 err:
