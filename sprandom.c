@@ -396,3 +396,89 @@ static int sprandom(struct sprandom_info *spr_info, struct fio_file *f,
 
      return 0;
 }
+
+static int sprandom_create_info(struct thread_data *td, struct fio_file *f)
+
+{
+    struct sprandom_info *spr_info = NULL;
+    uint32_t num_regions = td->o.num_regions;
+
+    spr_info = scalloc(1, sizeof(*spr_info) +
+                       num_regions * sizeof(spr_info->offsets[0]));
+    if (!spr_info) {
+        return -ENOMEM;
+    }
+
+    mutex_init_pshared(&spr_info->mutex);
+    spr_info->refcount = 1;
+    spr_info->nregions = num_regions;
+    spr_info->over_provision = td->o.over_provisioning.u.f;
+    sprandom(spr_info, f, td_min_bs(td));
+    f->spr_info = spr_info;
+
+    return 0;
+}
+
+void sprandom_free_info(struct fio_file *f)
+{
+    uint32_t refcount;
+
+    dprint(FD_FILE, "sprandom free info for %s\n", f->file_name);
+
+    pthread_mutex_lock(&f->spr_info->mutex);
+    refcount = --f->spr_info->refcount;
+    pthread_mutex_unlock(&f->spr_info->mutex);
+
+    assert((int32_t)refcount >= 0);
+    if (refcount == 0) {
+        sfree(f->spr_info);
+    }
+    f->spr_info = NULL;
+}
+
+static int sprandom_init_info(struct thread_data *td, struct fio_file *file)
+{
+    struct fio_file *f2;
+    int j, ret;
+
+    dprint(FD_FILE, "sprandom init info for %s\n", file->file_name);
+
+    for_each_td(td2) {
+        for_each_file(td2, f2, j) {
+            if (td2 == td && f2 == file)
+                continue;
+            if (!f2->spr_info ||
+                strcmp(f2->file_name, file->file_name) != 0)
+                continue;
+            file->spr_info = f2->spr_info;
+            file->spr_info->refcount++;
+            return 0;
+        }
+    } end_for_each();
+
+    ret = sprandom_create_info(td, file);
+    if (ret < 0) {
+        td_verror(td, -ret, "sprandom_create_info() failed");
+    }
+    dprint(FD_FILE, "sprandom created for [%d] %s\n", td->subjob_number, file->file_name);
+
+    return ret;
+}
+
+int sprandom_init_files(struct thread_data *td)
+{
+    struct fio_file *f;
+    int i;
+    for_each_file(td, f, i) {
+        if (sprandom_init_info(td, f))
+            return 1;
+    }
+    return 0;
+}
+
+uint64_t sprandom_io_size(const struct fio_file *f)
+{
+    if (f->spr_info)
+        return f->spr_info->region_sz;
+    return 0;
+}
