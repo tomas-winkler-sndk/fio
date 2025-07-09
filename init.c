@@ -690,6 +690,16 @@ static int fixup_options(struct thread_data *td)
 	if (o->zone_mode == ZONE_MODE_STRIDED && !o->zone_range)
 		o->zone_range = o->zone_size;
 
+	/* SPRandom requires LFSR */
+	if (o->sprandom) {
+		if (td_write(td) && td_random(td)) {
+			dprint(FD_SPRANDOM, "Setting LFSR %d", o->random_generator);
+			o->random_generator = FIO_RAND_GEN_LFSR;
+		} else {
+			log_err("fio:  sprandom requires random write");
+		}
+	}
+
 	/*
 	 * Reads can do overwrites, we always need to pre-create the file
 	 */
