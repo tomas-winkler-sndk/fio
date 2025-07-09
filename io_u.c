@@ -2163,8 +2163,10 @@ static void io_completed(struct thread_data *td, struct io_u **io_u_ptr,
 			td->this_io_bytes[ddir] += bytes;
 		}
 
-		if (ddir == DDIR_WRITE)
+		if (ddir == DDIR_WRITE) {
 			file_log_write_comp(td, f, io_u->offset, bytes);
+			sprandom_check_and_update(td, f);
+		}
 
 		if (should_account(td))
 			account_io_completion(td, io_u, icd, ddir, bytes);

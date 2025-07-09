@@ -47,6 +47,13 @@ static void print_d_array(double *darray, size_t len)
     buf_output_free(&out);
 }
 
+static inline uint64_t div_round_up(uint64_t x, uint64_t y)
+{
+	return (x + y - 1) / y;
+}
+
+
+#if 0
 static void print_ld_array(uint64_t *ldarray, size_t len)
 {
     struct buf_output out;
@@ -61,6 +68,7 @@ static void print_ld_array(uint64_t *ldarray, size_t len)
     dprint(FD_SPRANDOM, "%s", out.buf);
     buf_output_free(&out);
 }
+#endif
 
 static void print_d_points(struct point *parray, size_t len)
 {
@@ -361,38 +369,103 @@ out:
     return validity_distribution;
 }
 
+static void sprandom_region_size(struct fio_file *f, uint64_t align_bs) 
+{
+	struct sprandom_info *spr_info;
+	uint64_t fsize;
+	uint64_t region_sz;
+
+	if (!f || !f->spr_info)
+		return;
+	spr_info = f->spr_info; 
+
+	fsize = min(f->real_file_size, f->io_size);
+	fsize = fsize + ceil((double)fsize * spr_info->over_provision);
+    	region_sz = fsize / spr_info->nregions;
+	
+	region_sz = div_round_up(region_sz, align_bs) * align_bs;
+
+	spr_info->region_sz = region_sz;
+
+    	dprint(FD_FILE, "sprandom region size %ld\n", region_sz);
+}
+
+static void sprandom_region_blocks(struct fio_file *f, uint64_t align_bs) 
+{
+	struct sprandom_info *spr_info;
+	uint64_t fsize;
+	uint64_t blocks;
+
+	if (!f || !f->spr_info)
+		return;
+
+	spr_info = f->spr_info; 
+
+	fsize = min(f->real_file_size, f->io_size);
+	blocks = fsize / (uint64_t) align_bs;
+
+	spr_info->region_blocks = div_round_up(blocks, spr_info->nregions);
+    	dprint(FD_FILE, "sprandom blocks = %ld %ld\n", blocks, spr_info->region_blocks);
+}
+
 static int sprandom(struct sprandom_info *spr_info, struct fio_file *f,
                     uint64_t align_bs)
 {
-    uint64_t logical_size =  f->real_file_size;
-    double over_provision = spr_info->over_provision;
-    uint64_t physical_size = logical_size + ceil((double)logical_size * over_provision);
-    uint64_t region_sz = physical_size / spr_info->nregions;
-    uint64_t increment;
     unsigned int i;
 
     double *validity_distribution = sprandom_compute(spr_info->nregions,
-                                                      spr_info->over_provision);
+                                                     spr_info->over_provision);
 
     if (!validity_distribution) {
         return -ENOMEM;
     }
 
-    region_sz = (region_sz / align_bs + (region_sz % align_bs != 0)) * align_bs;
-
-    spr_info->region_sz = region_sz;
-
-    dprint(FD_FILE, "sprandom region size %ld\n", region_sz);
 
     reverse(validity_distribution, spr_info->nregions);
     print_d_array(validity_distribution, spr_info->nregions);
-    spr_info->offsets[0] = 0;
     for (i = 1; i < spr_info->nregions; i++) {
-        increment = (uint64_t)ceil(validity_distribution[i] * region_sz);
-        spr_info->offsets[i] = spr_info->offsets[i-1] + increment;
+        spr_info->regions[0].validity = validity_distribution[i];
     }
     free(validity_distribution);
-    print_ld_array(spr_info->offsets, spr_info->nregions);
 
-     return 0;
+    sprandom_region_size(f, align_bs);
+    sprandom_region_blocks(f, align_bs);
+
+    return 0;
+}
+
+int sprandom_create_info(struct thread_data *td, struct fio_file *f)
+{
+	struct sprandom_info *spr_info = NULL;
+	uint32_t num_regions = td->o.num_regions;
+
+	spr_info = scalloc(1, sizeof(*spr_info) +
+			   num_regions * sizeof(spr_info->regions[0]));
+	if (!spr_info)
+		return -ENOMEM;
+
+	spr_info->nregions = num_regions;
+	spr_info->over_provision = td->o.over_provisioning.u.f;
+	sprandom(spr_info, f, td_min_bs(td));
+	f->spr_info = spr_info;
+
+	return 0;
+}
+
+void sprandom_check_and_update(struct thread_data *td, struct fio_file *f)
+{
+	struct sprandom_info *spr_info = f->spr_info;
+	uint64_t idx;
+
+	if (!f || !f->spr_info)
+		return;
+
+	if (!spr_info)
+		return;
+
+	idx = td->io_blocks[DDIR_WRITE] % spr_info->region_blocks;
+	assert(idx < spr_info->nregions);
+
+	if (spr_info->region_current < idx)
+		lfsr_copy(&spr_info->regions[idx].lfrs_state, &f->lfsr);
 }

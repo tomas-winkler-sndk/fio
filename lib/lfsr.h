@@ -27,4 +27,9 @@ int lfsr_init(struct fio_lfsr *fl, uint64_t size,
 	      uint64_t seed, unsigned int spin);
 int lfsr_reset(struct fio_lfsr *fl, uint64_t seed);
 
+static inline struct fio_lfsr *lfsr_copy(struct fio_lfsr *fl, struct fio_lfsr *fl_save)
+{
+	return memcpy(fl_save, fl, sizeof(*fl_save));
+}
+
 #endif

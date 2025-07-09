@@ -7,8 +7,8 @@
 #ifndef FIO_SPRANDOM_H
 #define FIO_SPRANDOM_H
 
-#include <pthread.h>
 #include "fio.h"
+#include "lib/lfsr.h"
 
 /**
  * struct sprandom_info - Structure holding information for sparse random operations.
@@ -22,8 +22,15 @@
 struct sprandom_info {
 	double             over_provision;
 	uint64_t           region_sz;
+	uint64_t           region_blocks;
 	uint32_t           nregions;
-	uint64_t           offsets[];
+	uint32_t           region_current;
+	struct {
+		double           validity;
+		struct fio_lfsr  lfrs_state;
+	} regions[];
 };
+
+int sprandom_create_info(struct thread_data *td, struct fio_file *f);
 
 #endif /* FIO_SPRANDOM_H */
