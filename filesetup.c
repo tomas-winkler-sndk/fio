@@ -993,7 +993,7 @@ uint64_t get_start_offset(struct thread_data *td, struct fio_file *f)
 		 * block align the offset at the next available boundary at
 		 * ceiling(offset / align_bs) * align_bs
 		 */
-		offset = (offset / align_bs + (offset % align_bs != 0)) * align_bs;
+		offset = ALIGN_UP(offset, align_bs);
 	}
 
 	return offset;

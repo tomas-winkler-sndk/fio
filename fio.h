@@ -764,6 +764,9 @@ extern void free_threads_shm(void);
 #ifdef FIO_INTERNAL
 #define PTR_ALIGN(ptr, mask)	\
 	(char *) (((uintptr_t) (ptr) + (mask)) & ~(mask))
+
+#define ALIGN_UP(x, a)   ((((x) + ((a) - 1)) / (a)) * (a))
+#define ALIGN_DOWN(x, a) (((x) / (a)) * (a))
 #endif
 
 /*
