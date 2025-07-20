@@ -695,6 +695,7 @@ static int fixup_options(struct thread_data *td)
 		if (td_write(td) && td_random(td)) {
 			dprint(FD_SPRANDOM, "Setting LFSR %d", o->random_generator);
 			o->random_generator = FIO_RAND_GEN_LFSR;
+			o->norandommap = 1;
 		} else {
 			log_err("fio:  sprandom requires random write");
 		}
