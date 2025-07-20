@@ -11,6 +11,7 @@
 #include "lib/pow2.h"
 #include "minmax.h"
 #include "zbd.h"
+#include "sprandom.h"
 
 struct io_completion_data {
 	int nr;				/* input */
@@ -82,6 +83,25 @@ static uint64_t last_block(struct thread_data *td, struct fio_file *f,
 		return 0;
 
 	return max_blocks;
+}
+
+
+static int __get_next_rand_offset_sprandom(struct thread_data *td, struct fio_file *f,
+					   enum fio_ddir ddir, uint64_t *b,
+					   uint64_t lastb)
+{
+	if (ddir != DDIR_WRITE)
+		return 0;
+
+	fprintf(stderr, "bytes done %ld\n", td->bytes_done[ddir]);
+
+	/* SP RANDOM writes all addresses once */
+	if (sprandom_get_next_offset(f->spr_info, f, b)) {
+		dprint(FD_SPRANDOM, "sprandom is done\n");
+		td->done = 1;
+		return 1;
+	}
+	return 0;
 }
 
 static int __get_next_rand_offset(struct thread_data *td, struct fio_file *f,
@@ -277,7 +297,9 @@ bail:
 static int get_next_rand_offset(struct thread_data *td, struct fio_file *f,
 				enum fio_ddir ddir, uint64_t *b)
 {
-	if (td->o.random_distribution == FIO_RAND_DIST_RANDOM) {
+	if (td->o.sprandom && ddir == DDIR_WRITE) {
+		return __get_next_rand_offset_sprandom(td, f, ddir, b, 0);
+	} else if (td->o.random_distribution == FIO_RAND_DIST_RANDOM) {
 		uint64_t lastb;
 
 		lastb = last_block(td, f, ddir);
@@ -337,7 +359,7 @@ static int get_next_rand_block(struct thread_data *td, struct fio_file *f,
 			return 0;
 	}
 
-	dprint(FD_IO, "%s: rand offset failed, last=%llu, size=%llu\n",
+	dprint(FD_SPRANDOM, "%s: rand offset failed, last=%llu, size=%llu\n",
 			f->file_name, (unsigned long long) f->last_pos[ddir],
 			(unsigned long long) f->real_file_size);
 	return 1;
@@ -483,6 +505,10 @@ static int get_next_block(struct thread_data *td, struct io_u *io_u,
 		}
 		io_u->verify_offset = io_u->offset;
 	}
+
+	if (ret)
+		dprint(FD_SPRANDOM, "%s DONE", __func__);
+
 
 	return ret;
 }
@@ -965,7 +991,7 @@ static int fill_multi_range_io_u(struct thread_data *td, struct io_u *io_u)
 	while (i < td->o.num_range) {
 		range = (struct trim_range *)buf;
 		if (get_next_offset(td, io_u, &is_random)) {
-			dprint(FD_IO, "io_u %p, failed getting offset\n",
+			dprint(FD_SPRANDOM, "io_u %p, failed getting offset\n",
 			       io_u);
 			break;
 		}
@@ -1504,7 +1530,7 @@ static long set_io_u_file(struct thread_data *td, struct io_u *io_u)
 		else {
 			fio_file_set_done(f);
 			td->nr_done_files++;
-			dprint(FD_FILE, "%s: is done (%d of %d)\n", f->file_name,
+			dprint(FD_SPRANDOM, "%s: is done (%d of %d)\n", f->file_name,
 					td->nr_done_files, td->o.nr_files);
 		}
 	} while (1);

@@ -11,6 +11,7 @@ thread=1
 buffer_compress_percentage=0
 iodepth=64
 [preconditiong]
+filename=testfile
 sprandom=1
 over_provisioning=0.15
-num_regions=100
+num_regions=10

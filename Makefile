@@ -378,6 +378,10 @@ T_MEMLOCK_PROGS = t/memlock
 T_TT_OBJS = t/time-test.o
 T_TT_PROGS = t/time-test
 
+T_SPRANDOM_OBJS = t/sprandom.o
+T_SPRANDOM_PROGS = t/sprandom
+
+
 ifneq (,$(findstring -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION,$(CFLAGS)))
 T_FUZZ_OBJS = t/fuzz/fuzz_parseini.o
 T_FUZZ_OBJS += $(OBJS)
@@ -415,6 +419,7 @@ T_OBJS += $(T_MEMLOCK_OBJS)
 T_OBJS += $(T_TT_OBJS)
 T_OBJS += $(T_IOU_RING_OBJS)
 T_OBJS += $(T_FUZZ_OBJS)
+T_OBJS += $(T_SPRANDOM_OBJS)
 
 ifneq (,$(findstring CYGWIN,$(CONFIG_TARGET_OS)))
     T_DEDUPE_OBJS += $(WINDOWS_OBJS)
@@ -441,6 +446,7 @@ ifneq (,$(findstring Linux,$(CONFIG_TARGET_OS)))
 T_TEST_PROGS += $(T_IOU_RING_PROGS)
 endif
 T_TEST_PROGS += $(T_FUZZ_PROGS)
+T_PROGS += $(T_SPRANDOM_OBJS)
 
 PROGS += $(T_PROGS)
 

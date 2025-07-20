@@ -15,6 +15,7 @@
 #include "lib/axmap.h"
 #include "rwlock.h"
 #include "zbd.h"
+#include "sprandom.h"
 
 #ifdef CONFIG_LINUX_FALLOCATE
 #include <linux/falloc.h>
@@ -1400,6 +1401,13 @@ done:
 			goto err_out;
 	}
 
+	if (td->o.sprandom) {
+		for_each_file(td, f, i) {
+			int ret = sprandom_init(td, f);
+			log_err("fio: sprandom %d\n", ret);
+		}
+	}
+
 	if (o->create_only)
 		td->done = 1;
 
@@ -1532,6 +1540,7 @@ bool init_random_map(struct thread_data *td)
 			fsize = td->o.zone_range;
 
 		blocks = fsize / (unsigned long long) td->o.rw_min_bs;
+		fprintf(stderr, "fsize = %ld, blocks=%lld, bs=%lld\n", fsize, blocks, td->o.rw_min_bs);
 
 		if (check_rand_gen_limits(td, f, blocks))
 			return false;
