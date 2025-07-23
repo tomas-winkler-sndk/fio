@@ -93,8 +93,6 @@ static int __get_next_rand_offset_sprandom(struct thread_data *td, struct fio_fi
 	if (ddir != DDIR_WRITE)
 		return 0;
 
-	fprintf(stderr, "bytes done %ld\n", td->bytes_done[ddir]);
-
 	/* SP RANDOM writes all addresses once */
 	if (sprandom_get_next_offset(f->spr_info, f, b)) {
 		dprint(FD_SPRANDOM, "sprandom is done\n");

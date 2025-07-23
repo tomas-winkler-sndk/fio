@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include "lib/rand.h"
+#include "pcbuf.h"
 
 /**
  * struct sprandom_info - Structure holding information for sparse random operations.
@@ -26,17 +27,15 @@ struct sprandom_info {
 	uint32_t               curr_region;
 	uint32_t               num_regions;
 	double                 *validity_dist;
-	int                     *invalid_pct;
+	uint32_t               *invalid_pct;
 
 	uint64_t total_lbas;
 	uint64_t region_write_count;
 
 
-	// Invalidation list
-	uint64_t *invalid_lbas[2];
+	/* Invalidation list*/
+	struct pc_buf *invalid_buf;
 	size_t    invalid_count[2];
-	size_t    invalid_index[2];
-
 	size_t    invalid_capacity;
 	uint32_t  curr_phase;
 

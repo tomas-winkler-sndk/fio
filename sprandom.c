@@ -18,7 +18,7 @@
 
 static inline double *d_alloc(size_t n)
 {
-	return malloc(n * sizeof(double));
+	return calloc(n, sizeof(double));
 }
 
 struct point {
@@ -28,7 +28,7 @@ struct point {
 
 static inline struct point *p_alloc(size_t n)
 {
-	return malloc(n * sizeof(struct point));
+	return calloc(n, sizeof(struct point));
 }
 
 static void print_d_array(double *darray, size_t len)
@@ -218,7 +218,7 @@ static int sample_curve_equally_on_x(struct point *points, unsigned int num, uns
 	}
 
 	if (num == 0) {
-		fprintf(stderr, "Error: Original points array cannot be empty.\n");
+		log_err("Original points array cannot be empty.\n");
 		return -3;
 	}
 
@@ -232,7 +232,7 @@ static int sample_curve_equally_on_x(struct point *points, unsigned int num, uns
 	/* Check if x-values are strictly increasing and sort them */
 	for (i = 0; i < num - 1; i++) {
 		if (points[i+1].x <= points[i].x) {
-			fprintf(stderr, "Error: x-values must be strictly increasing.\n");
+			log_err("x-values must be strictly increasing.\n");
 			ret = -2;
 			goto cleanup;
 		}
@@ -243,7 +243,7 @@ static int sample_curve_equally_on_x(struct point *points, unsigned int num, uns
 	x_orig = d_alloc(num);
 	y_orig = d_alloc(num);
 	if (x_orig == NULL || y_orig == NULL) {
-		fprintf(stderr, "Error: Memory allocation failed for x_orig or y_orig.\n");
+		log_err("Memory allocation failed for x_orig or y_orig.\n");
 		ret = -1;
 		goto cleanup;
 	}
@@ -263,7 +263,7 @@ static int sample_curve_equally_on_x(struct point *points, unsigned int num, uns
 	/* 5. Allocate memory for new resampled points */
 	new_points_arr = (struct point *)calloc(num_resampled, sizeof(struct point));
 	if (new_points_arr == (struct point *)0) {
-		fprintf(stderr, "Error: Memory allocation failed for new_points_arr.\n");
+		log_err("Memory allocation failed for new_points_arr.\n");
 		ret = -1;
 		goto cleanup;
 	}
@@ -315,7 +315,7 @@ static double *sprandom_compute(unsigned int n_regions, double over_provisioning
 	int ret;
 
 	if (n_regions == 0) {
-		fprintf(stderr, "Error: requires at least one region");
+		log_err("Error: requires at least one region");
 		goto out;
 	}
 
@@ -324,7 +324,7 @@ static double *sprandom_compute(unsigned int n_regions, double over_provisioning
 
 	blocks_ratio = d_alloc(n_regions);
 	if (blocks_ratio == NULL) {
-		fprintf(stderr, "Error: Memory allocation failed for linspace.\n");
+		log_err("Memory allocation failed for linspace.\n");
 		goto out;
 	}
 
@@ -334,7 +334,7 @@ static double *sprandom_compute(unsigned int n_regions, double over_provisioning
 
 	acc_ratio = d_alloc(n_regions);
 	if (acc_ratio == NULL) {
-		fprintf(stderr, "Error: Memory allocation failed for linspace_c.\n");
+		log_err("Memory allocation failed for linspace_c.\n");
 		goto out;
 	}
 
@@ -366,7 +366,7 @@ static double *sprandom_compute(unsigned int n_regions, double over_provisioning
 		printf("Resampled points (num_regions = %u):\n", n_regions);
 		print_d_points(points_resampled, n_regions);
 	} else {
-		fprintf(stderr, "Failed to resample curve. Error code: %d\n", ret);
+		log_err("Failed to resample curve. Error code: %d\n", ret);
 		goto out;
 	}
 
@@ -412,18 +412,20 @@ static int sprandom(struct sprandom_info *spr_info, struct fio_file *f,
 	/* Initialize validity_distribution */
 	print_d_array(validity_dist, spr_info->num_regions);
 
+	/* FIXME: can we remove it */
 	spr_info->validity_dist = validity_dist;
+	total_alloc += spr_info->num_regions * sizeof(double); // validity_dist
 
 	/* Precompute invalidity percentage array */
 	spr_info->invalid_pct = calloc(spr_info->num_regions, sizeof(int));
-	if (!spr_info->invalid_pct)
+	if (!spr_info->invalid_pct) {
 		goto err;
+	}
+	total_alloc += spr_info->num_regions * sizeof(double); // invalid_pct
 
 	for (i = 0; i < spr_info->num_regions; i++) {
 		spr_info->invalid_pct[i] = (int)round(((1.0 - validity_dist[i]) * 10000.0));
 	}
-	total_alloc += spr_info->num_regions * sizeof(double); // invalid_pct
-	total_alloc += spr_info->num_regions * sizeof(double); // validity_dist
 
 	region_sz = physical_size / spr_info->num_regions;
 	spr_info->region_sz = region_sz;
@@ -436,15 +438,13 @@ static int sprandom(struct sprandom_info *spr_info, struct fio_file *f,
 	spr_info->invalid_capacity = ceil((double)region_write_count * (1.0 - validity_dist[0]));
 	dprint(FD_SPRANDOM, "sprandom inv capacity %ld\n", spr_info->invalid_capacity);
 
-	spr_info->invalid_lbas[0] = calloc(spr_info->invalid_capacity, sizeof(uint64_t));
 	spr_info->invalid_count[0] = 0;
-	spr_info->invalid_index[0] = 0;
-	total_alloc += spr_info->invalid_capacity * sizeof(uint64_t);
-
-	spr_info->invalid_lbas[1] = calloc(spr_info->invalid_capacity, sizeof(uint64_t));
 	spr_info->invalid_count[1] = 0;
-	spr_info->invalid_index[1] = 0;
-	total_alloc += spr_info->invalid_capacity * sizeof(uint64_t);
+
+
+	spr_info->invalid_buf = pcb_alloc(spr_info->invalid_capacity + ceil((double)region_write_count * (1.0 - validity_dist[1])));
+
+	total_alloc += 2 * spr_info->invalid_capacity * sizeof(uint64_t);
 
 	spr_info->curr_phase = 0;
 
@@ -455,23 +455,22 @@ static int sprandom(struct sprandom_info *spr_info, struct fio_file *f,
 
 	/* Display overall allocation */
 	{
-	char human_buf[32];
-	fprintf(stderr, "Overall allocation:\n");
-	fprintf(stderr, "  logical_size:      %lu: %s\n",
-		logical_size,
-		human_mem_to_str(human_buf, sizeof(human_buf), logical_size));
-	fprintf(stderr, "  physical_size:     %lu: %s\n",
-		physical_size,
-		human_mem_to_str(human_buf, sizeof(human_buf), physical_size));
-	fprintf(stderr, "  region_size:       %lu\n", region_sz);
-	fprintf(stderr, "  num_regions:       %u\n", spr_info->num_regions);
-	fprintf(stderr, "  region_write_count:%lu\n", region_write_count);
-	fprintf(stderr, "  invalid_capacity:  %lu\n", spr_info->invalid_capacity);
-	fprintf(stderr, "  dynamic memory:    %zu: %s\n",
-		total_alloc,
-		human_mem_to_str(human_buf, sizeof(human_buf), total_alloc));
+		char human_buf[32];
+		dprint(FD_SPRANDOM, "Overall allocation:\n");
+		dprint(FD_SPRANDOM, "  logical_size:      %lu: %s\n",
+			logical_size,
+			human_mem_to_str(human_buf, sizeof(human_buf), logical_size));
+		dprint(FD_SPRANDOM, "  physical_size:     %lu: %s\n",
+			physical_size,
+			human_mem_to_str(human_buf, sizeof(human_buf), physical_size));
+		dprint(FD_SPRANDOM, "  region_size:       %lu\n", region_sz);
+		dprint(FD_SPRANDOM, "  num_regions:       %u\n", spr_info->num_regions);
+		dprint(FD_SPRANDOM, "  region_write_count:%lu\n", region_write_count);
+		dprint(FD_SPRANDOM, "  invalid_capacity:  %lu\n", spr_info->invalid_capacity);
+		dprint(FD_SPRANDOM, "  dynamic memory:    %zu: %s\n",
+			total_alloc,
+			human_mem_to_str(human_buf, sizeof(human_buf), total_alloc));
 	}
-
 	return 0;
 
 err:
@@ -480,43 +479,43 @@ err:
 	return -ENOMEM;
 }
 
-static void sprandom_add_with_probability(struct sprandom_info *info,
+static void sprandom_add_with_probability_2(struct sprandom_info *info,
                 uint64_t offset, unsigned int phase)
 {
 	int v = rand_between(&info->rand_state, 0, 10000);
 
-	if (v < info->invalid_pct[info->current_region] &&
-	    info->invalid_count[phase] < info->invalid_capacity) {
-		info->invalid_lbas[phase][info->invalid_count[phase]++] = offset;
-		fprintf(stderr, "stored offset=%ld\n", offset);
+	if (v <= info->invalid_pct[info->current_region]) {
+		if (pcb_space_available(info->invalid_buf)) {
+			pcb_push_staged(info->invalid_buf, offset); 
+			info->invalid_count[phase]++;
+		} else {
+			dprint(FD_SPRANDOM, "overriding!!!\n");
+		}
 	}
 }
 
+
 int sprandom_get_next_offset(struct sprandom_info *info, struct fio_file *f, uint64_t *b)
 {
-
 	uint64_t offset = 0;
 	uint32_t phase = info->curr_phase;
 
 	/* replay invalidation */
-	fprintf(stderr, "index=%zu count=%zu phase=%d region=%d wr=%ld\n",
-	        info->invalid_index[phase], info->invalid_count[phase], phase, info->current_region, info->writes_remaining);
-	if (info->invalid_index[phase] < info->invalid_count[phase]) {
-		*b = info->invalid_lbas[phase][info->invalid_index[phase]++];
-		sprandom_add_with_probability(info, *b,  phase ^ 1);
-		fprintf(stderr, "Write %ld over %d\n", *b, info->current_region);
+	if (pcb_pop(info->invalid_buf, &offset)) {
+		*b = offset;
+		sprandom_add_with_probability_2(info, *b,  phase ^ 1);
+		dprint(FD_SPRANDOM, "Write %ld over %d\n", *b, info->current_region);
 		return 0;
 	}
-
 
 	// Move to next region
 	if (info->writes_remaining == 0) {
 		if (info->current_region >= info->num_regions) {
-			fprintf(stderr, "The End 1 num %d cur%d\n", info->current_region, info->num_regions);
+			dprint(FD_SPRANDOM, "The End 1 num %d cur%d\n", info->current_region, info->num_regions);
 			return 1;
 		}
 
-		fprintf(stderr, "Invalidation[%d] %ld %ld %.04f %d\n",
+		dprint(FD_SPRANDOM, "Invalidation[%d] %ld %ld %.04f %d\n",
 			info->current_region,
 			info->region_write_count,
 			info->invalid_count[phase],
@@ -524,21 +523,21 @@ int sprandom_get_next_offset(struct sprandom_info *info, struct fio_file *f, uin
 			info->invalid_pct[info->current_region]);
 
 		info->writes_remaining = info->region_write_count - info->invalid_count[phase];
-		info->invalid_index[phase] = 0;
 		info->invalid_count[phase] = 0;
 
 		info->current_region++;
 		info->curr_phase  = phase ^ 1;
-		fprintf(stderr, "region count %d\n", info->current_region);
+		pcb_commit(info->invalid_buf);
+		dprint(FD_SPRANDOM, "region count %d\n", info->current_region);
 	}
 
 	if (lfsr_next(&f->lfsr, &offset)) {
-		fprintf(stderr, "The End: LFSR exhausted %d [%ld: %ld] [%ld: %ld]\n",
+		dprint(FD_SPRANDOM, "The End: LFSR exhausted %d [%ld] [%ld]\n",
 			info->current_region,
-			info->invalid_index[phase], info->invalid_count[phase],
-			info->invalid_index[phase ^ 1], info->invalid_count[phase ^ 1]);
+			info->invalid_count[phase],
+			info->invalid_count[phase ^ 1]);
 
-		fprintf(stderr, "Invalidation[%d] %ld %ld %.04f %d\n",
+		dprint(FD_SPRANDOM, "Invalidation[%d] %ld %ld %.04f %d\n",
 			info->current_region,
 			info->region_write_count,
 			info->invalid_count[phase],
@@ -550,8 +549,8 @@ int sprandom_get_next_offset(struct sprandom_info *info, struct fio_file *f, uin
 	if (info->writes_remaining > 0)
 		info->writes_remaining--;
 
-	sprandom_add_with_probability(info, offset,  phase ^ 1);
-	fprintf(stderr, "Write %ld lfsr %d\n", offset, info->current_region);
+	sprandom_add_with_probability_2(info, offset,  phase ^ 1);
+	dprint(FD_SPRANDOM, "Write %ld lfsr %d\n", offset, info->current_region);
 	*b = offset;
 	return 0;
 }
@@ -586,8 +585,7 @@ void sprandom_free(struct sprandom_info *spr_info)
 	if (spr_info->validity_dist)
 		free(spr_info->validity_dist);
 
-	if (spr_info->invalid_lbas[0])
-		free(spr_info->invalid_lbas[0]);
-	if (spr_info->invalid_lbas[1])
-		free(spr_info->invalid_lbas[1]);
+	if (spr_info->invalid_buf)
+		free(spr_info->invalid_buf);
+	free(spr_info);
 }
