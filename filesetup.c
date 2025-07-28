@@ -15,6 +15,7 @@
 #include "lib/axmap.h"
 #include "rwlock.h"
 #include "zbd.h"
+#include "sprandom.h"
 
 #ifdef CONFIG_LINUX_FALLOCATE
 #include <linux/falloc.h>
@@ -1400,6 +1401,13 @@ done:
 			goto err_out;
 	}
 
+	if (td->o.sprandom) {
+		for_each_file(td, f, i) {
+			int ret = sprandom_init(td, f);
+			log_err("fio: sprandom %d\n", ret);
+		}
+	}
+
 	if (o->create_only)
 		td->done = 1;
 
@@ -1589,6 +1597,8 @@ void fio_file_free(struct fio_file *f)
 		axmap_free(f->io_axmap);
 	if (f->ruhs_info)
 		sfree(f->ruhs_info);
+	if (f->spr_info)
+		sprandom_free(f->spr_info);
 	if (!fio_file_smalloc(f)) {
 		free(f->file_name);
 		free(f);
