@@ -38,7 +38,7 @@ static void print_d_array(const char *hdr, double *darray, size_t len)
 	for (i = 0; i < len - 1; i++)
 		log_buf(&out, "%.2f, ", darray[i]);
 
-	log_buf(&out, "%.2f]\n", darray[len - 1]);
+	log_buf(&out, "%.4f]\n", darray[len - 1]);
 	if (hdr)
 		dprint(FD_SPRANDOM, "%s: ", hdr);
 
@@ -597,6 +597,7 @@ int sprandom_init(struct thread_data *td, struct fio_file *f)
 	over_provisioning = td->o.spr_over_provisioning.u.f;
 	info->num_regions = td->o.spr_num_regions;
 	info->over_provisioning = over_provisioning;
+	td->o.io_size = sprandom_pysical_size(over_provisioning, min(f->real_file_size, f->io_size)) * 2;
 	ret = sprandom_init_rand_state(info, td);
 	if (ret)
 		goto err;

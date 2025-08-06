@@ -3,7 +3,6 @@ ioengine=libaio
 rw=randwrite
 size=100%
 bs=4k
-offset_align=4k
 blockalign=4k
 group_reporting=0
 direct=1
